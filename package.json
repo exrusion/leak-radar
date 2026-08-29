@@ -12,6 +12,7 @@
     "score": "node src/score/run.js",
     "migrate": "node src/db/migrate.js",
     "seed": "node src/db/seed.js",
+    "seed:clear": "node src/db/clear-seed.js",
     "serve": "node src/api/server.js"
   },
   "dependencies": {
