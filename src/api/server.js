@@ -1,10 +1,22 @@
 import express from "express";
 import pg from "pg";
+import crypto from "crypto";
 import "dotenv/config";
 
 const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
 const app = express();
 app.use(express.json());
+
+// Railway sits behind a proxy — trust it so req.ip reflects the real visitor IP
+// rather than Railway's internal proxy address.
+app.set("trust proxy", true);
+
+// Never store raw IPs — hash with a server-side salt so votes can be deduped
+// per-visitor without keeping identifying data.
+const IP_SALT = process.env.IP_HASH_SALT || "leak-radar-default-salt-change-me";
+function hashIp(ip) {
+  return crypto.createHash("sha256").update(`${IP_SALT}:${ip}`).digest("hex");
+}
 
 // Allow the frontend (gtaleaks.fun, Vercel preview URLs, local dev) to call this API from the browser.
 app.use((req, res, next) => {
@@ -69,9 +81,7 @@ app.get("/sources", async (req, res) => {
 });
 
 // POST /items/:id/vote  { direction: "up" | "down" }
-// Lightweight community signal — nudges an item's corroboration_count.
-// This is a simple counter, not sybil-resistant (no auth/rate-limiting yet) —
-// fine for a small early-stage site, but don't treat it as a trust signal at scale.
+// One vote per (item, IP) — voting again just switches or no-ops instead of stacking.
 app.post("/items/:id/vote", async (req, res) => {
   const itemId = parseInt(req.params.id);
   const direction = req.body?.direction;
@@ -79,17 +89,126 @@ app.post("/items/:id/vote", async (req, res) => {
     return res.status(400).json({ error: "Expected { direction: 'up' | 'down' } and a valid item id" });
   }
 
+  const ipHash = hashIp(req.ip);
   const delta = direction === "up" ? 1 : -1;
-  const { rows } = await pool.query(
-    `UPDATE scores
-     SET corroboration_count = GREATEST(0, corroboration_count + $1), updated_at = now()
-     WHERE item_id = $2
-     RETURNING item_id, corroboration_count, credibility_score, virality_score, status`,
-    [delta, itemId]
-  );
 
-  if (rows.length === 0) return res.status(404).json({ error: "Item not found" });
-  res.json(rows[0]);
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    const existing = await client.query(
+      `SELECT direction FROM votes WHERE item_id = $1 AND ip_hash = $2`,
+      [itemId, ipHash]
+    );
+
+    let scoreDelta = 0;
+    if (existing.rows.length === 0) {
+      // First vote from this visitor on this item.
+      await client.query(
+        `INSERT INTO votes (item_id, ip_hash, direction) VALUES ($1, $2, $3)`,
+        [itemId, ipHash, direction]
+      );
+      scoreDelta = delta;
+    } else if (existing.rows[0].direction === direction) {
+      // Same vote again — no-op, they've already registered this vote.
+      scoreDelta = 0;
+    } else {
+      // Switching from up to down (or vice versa) — undo the old, apply the new.
+      await client.query(
+        `UPDATE votes SET direction = $3, voted_at = now() WHERE item_id = $1 AND ip_hash = $2`,
+        [itemId, ipHash, direction]
+      );
+      scoreDelta = delta * 2;
+    }
+
+    const result = await client.query(
+      `UPDATE scores
+       SET corroboration_count = GREATEST(0, corroboration_count + $1), updated_at = now()
+       WHERE item_id = $2
+       RETURNING item_id, corroboration_count, credibility_score, virality_score, status`,
+      [scoreDelta, itemId]
+    );
+
+    if (result.rows.length === 0) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ error: "Item not found" });
+    }
+
+    await client.query("COMMIT");
+    res.json({ ...result.rows[0], your_vote: direction });
+  } catch (err) {
+    await client.query("ROLLBACK");
+    console.error("Vote failed:", err);
+    res.status(500).json({ error: "Vote failed" });
+  } finally {
+    client.release();
+  }
+});
+
+// POST /submissions  { url, description }
+// Lets visitors submit a link (news post, tweet, video, etc.) with a short
+// description. We store the link + description only — never the underlying
+// media itself — so this stays a pointer/aggregator, not a file host.
+app.post("/submissions", async (req, res) => {
+  const url = (req.body?.url || "").trim();
+  const description = (req.body?.description || "").trim();
+
+  if (!url || !/^https?:\/\/.+/i.test(url)) {
+    return res.status(400).json({ error: "A valid http(s) url is required" });
+  }
+  if (description.length > 500) {
+    return res.status(400).json({ error: "description must be 500 characters or fewer" });
+  }
+
+  const ipHash = hashIp(req.ip);
+  const sourceHandle = `community-${ipHash.slice(0, 8)}`;
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    const sourceRes = await client.query(
+      `INSERT INTO sources (platform, handle)
+       VALUES ('community', $1)
+       ON CONFLICT (platform, handle) DO UPDATE SET handle = EXCLUDED.handle
+       RETURNING id`,
+      [sourceHandle]
+    );
+    const sourceId = sourceRes.rows[0].id;
+
+    const externalId = crypto.createHash("sha256").update(url).digest("hex").slice(0, 40);
+    const title = description || url;
+
+    const itemRes = await client.query(
+      `INSERT INTO items
+         (platform, external_id, source_id, title, body, url, permalink, posted_at, upvotes, comment_count)
+       VALUES ('user_submitted', $1, $2, $3, $4, $5, $5, now(), 0, 0)
+       ON CONFLICT (platform, external_id) DO NOTHING
+       RETURNING id`,
+      [externalId, sourceId, title.slice(0, 200), description, url]
+    );
+
+    if (itemRes.rows.length === 0) {
+      await client.query("ROLLBACK");
+      return res.status(409).json({ error: "This link has already been submitted" });
+    }
+
+    const itemId = itemRes.rows[0].id;
+    await client.query(
+      `INSERT INTO scores (item_id, credibility_score, virality_score, corroboration_count, status)
+       VALUES ($1, 40, 0, 0, 'unverified')`,
+      [itemId]
+    );
+
+    await client.query("COMMIT");
+    res.status(201).json({ id: itemId, message: "Submitted for review" });
+  } catch (err) {
+    await client.query("ROLLBACK");
+    console.error("Submission failed:", err);
+    res.status(500).json({ error: "Submission failed" });
+  } finally {
+    client.release();
+  }
 });
 
 const port = process.env.PORT || 3000;

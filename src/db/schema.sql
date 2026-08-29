@@ -62,6 +62,16 @@ CREATE TABLE IF NOT EXISTS claim_cluster_items (
   PRIMARY KEY (cluster_id, item_id)
 );
 
+-- Votes: one vote per (item, IP) so a single visitor can't spam thumbs up/down.
+-- IP is stored as a salted hash, never raw, to avoid keeping identifying data.
+CREATE TABLE IF NOT EXISTS votes (
+  item_id INTEGER REFERENCES items(id) ON DELETE CASCADE,
+  ip_hash TEXT NOT NULL,
+  direction TEXT NOT NULL,          -- 'up' or 'down'
+  voted_at TIMESTAMPTZ DEFAULT now(),
+  PRIMARY KEY (item_id, ip_hash)
+);
+
 CREATE INDEX IF NOT EXISTS idx_items_posted_at ON items (posted_at DESC);
 CREATE INDEX IF NOT EXISTS idx_scores_virality ON scores (virality_score DESC);
 CREATE INDEX IF NOT EXISTS idx_scores_credibility ON scores (credibility_score DESC);
