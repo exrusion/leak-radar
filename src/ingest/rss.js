@@ -10,9 +10,8 @@ const parser = new Parser();
 // YouTube channel feed format: https://www.youtube.com/feeds/videos.xml?channel_id=CHANNEL_ID
 // (find a channel_id via the channel's page source or a lookup tool)
 const DEFAULT_FEEDS = [
-  { url: "https://www.rockstargames.com/newswire.rss", label: "Rockstar Newswire" },
   { url: "https://www.gtaboom.com/feed/", label: "GTA BOOM" },
-  { url: "https://www.gta6news.net/feed/", label: "GTA6 News" },
+  { url: "https://rockstarintel.com/category/news/feed/", label: "RockstarINTEL" },
 ];
 
 const FEEDS = process.env.RSS_FEEDS

@@ -217,5 +217,105 @@ app.post("/submissions", async (req, res) => {
   }
 });
 
+// --- Admin moderation (protected by ADMIN_KEY) ---
+// Send the key as header "x-admin-key". Never expose this key in the frontend
+// or any public repo — it's meant for you (or a private admin tool) only.
+const ADMIN_KEY = process.env.ADMIN_KEY;
+function requireAdmin(req, res, next) {
+  if (!ADMIN_KEY) {
+    return res.status(503).json({ error: "Admin moderation is not configured (ADMIN_KEY not set)" });
+  }
+  if (req.header("x-admin-key") !== ADMIN_KEY) {
+    return res.status(401).json({ error: "Invalid or missing x-admin-key header" });
+  }
+  next();
+}
+
+// GET /admin/queue — items awaiting review, oldest first.
+// Defaults to unverified/community submissions since those need the most eyes,
+// but any status can be requested via ?status=.
+app.get("/admin/queue", requireAdmin, async (req, res) => {
+  const statusFilter = req.query.status || "unverified";
+  const { rows } = await pool.query(
+    `SELECT
+       i.id, i.title, i.body, i.permalink, i.posted_at, i.platform,
+       s.id AS source_id, s.platform AS source_platform, s.handle, s.trust_score,
+       sc.credibility_score, sc.virality_score, sc.status, sc.corroboration_count
+     FROM items i
+     JOIN scores sc ON sc.item_id = i.id
+     LEFT JOIN sources s ON s.id = i.source_id
+     WHERE sc.status = $1
+     ORDER BY i.posted_at ASC
+     LIMIT 100`,
+    [statusFilter]
+  );
+  res.json({ count: rows.length, items: rows });
+});
+
+// POST /admin/moderate/:id  { action: "confirm" | "debunk" | "delete" }
+// - confirm: marks the claim as verified true, rewards the source's trust score
+// - debunk: marks it false, penalizes the source's trust score
+// - delete: removes the item entirely (e.g. spam, abuse, off-topic)
+app.post("/admin/moderate/:id", requireAdmin, async (req, res) => {
+  const itemId = parseInt(req.params.id);
+  const action = req.body?.action;
+  if (!itemId || !["confirm", "debunk", "delete"].includes(action)) {
+    return res.status(400).json({ error: "Expected { action: 'confirm' | 'debunk' | 'delete' } and a valid item id" });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    const itemRes = await client.query(`SELECT source_id FROM items WHERE id = $1`, [itemId]);
+    if (itemRes.rows.length === 0) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ error: "Item not found" });
+    }
+    const sourceId = itemRes.rows[0].source_id;
+
+    if (action === "delete") {
+      await client.query(`DELETE FROM items WHERE id = $1`, [itemId]);
+      await client.query("COMMIT");
+      return res.json({ id: itemId, action: "deleted" });
+    }
+
+    const newStatus = action === "confirm" ? "confirmed" : "debunked";
+    await client.query(
+      `UPDATE scores SET status = $1, updated_at = now() WHERE item_id = $2`,
+      [newStatus, itemId]
+    );
+
+    if (sourceId) {
+      if (action === "confirm") {
+        await client.query(
+          `UPDATE sources
+           SET claims_confirmed = claims_confirmed + 1,
+               trust_score = LEAST(100, trust_score + 10)
+           WHERE id = $1`,
+          [sourceId]
+        );
+      } else {
+        await client.query(
+          `UPDATE sources
+           SET claims_debunked = claims_debunked + 1,
+               trust_score = GREATEST(0, trust_score - 15)
+           WHERE id = $1`,
+          [sourceId]
+        );
+      }
+    }
+
+    await client.query("COMMIT");
+    res.json({ id: itemId, action: newStatus });
+  } catch (err) {
+    await client.query("ROLLBACK");
+    console.error("Moderation action failed:", err);
+    res.status(500).json({ error: "Moderation action failed" });
+  } finally {
+    client.release();
+  }
+});
+
 const port = process.env.PORT || 3000;
 app.listen(port, () => console.log(`leak-radar API listening on :${port}`));
