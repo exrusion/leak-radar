@@ -1,0 +1,21 @@
+{
+  "name": "leak-radar",
+  "version": "0.1.0",
+  "description": "GTA leak aggregator - scrapes Reddit for leak mentions and scores them by credibility/virality",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js",
+    "ingest": "node src/ingest/reddit.js",
+    "score": "node src/score/run.js",
+    "migrate": "node src/db/migrate.js",
+    "serve": "node src/api/server.js"
+  },
+  "dependencies": {
+    "pg": "^8.13.1",
+    "snoowrap": "^1.23.0",
+    "express": "^4.21.2",
+    "dotenv": "^16.4.7",
+    "node-cron": "^3.0.3"
+  }
+}
