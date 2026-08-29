@@ -5,6 +5,15 @@ import "dotenv/config";
 const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
 const app = express();
 
+// Allow the frontend (gtaleaks.fun, Vercel preview URLs, local dev) to call this API from the browser.
+app.use((req, res, next) => {
+  res.header("Access-Control-Allow-Origin", "*");
+  res.header("Access-Control-Allow-Methods", "GET,OPTIONS");
+  res.header("Access-Control-Allow-Headers", "Content-Type");
+  if (req.method === "OPTIONS") return res.sendStatus(204);
+  next();
+});
+
 // GET /feed?sort=virality|credibility&status=corroborated&limit=50
 app.get("/feed", async (req, res) => {
   const sort = req.query.sort === "credibility" ? "credibility_score" : "virality_score";
