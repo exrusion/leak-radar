@@ -27,25 +27,31 @@ app.use((req, res, next) => {
   next();
 });
 
-// GET /feed?sort=virality|credibility&status=corroborated&limit=50
+// GET /feed?sort=virality|credibility&status=corroborated&platform=community&limit=50
 app.get("/feed", async (req, res) => {
   const sort = req.query.sort === "credibility" ? "credibility_score" : "virality_score";
   const limit = Math.min(parseInt(req.query.limit) || 50, 200);
   const statusFilter = req.query.status;
+  const platformFilter = req.query.platform;
 
   const params = [];
-  let where = "";
+  const conditions = [];
   if (statusFilter) {
     params.push(statusFilter);
-    where = `WHERE sc.status = $${params.length}`;
+    conditions.push(`sc.status = $${params.length}`);
   }
+  if (platformFilter) {
+    params.push(platformFilter);
+    conditions.push(`i.platform = $${params.length}`);
+  }
+  const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
   params.push(limit);
 
   const { rows } = await pool.query(
     `SELECT
        i.id, i.title, i.body, i.permalink, i.posted_at,
-       i.upvotes, i.comment_count,
-       s.platform, s.handle, s.trust_score,
+       i.upvotes, i.comment_count, i.platform,
+       s.handle, s.trust_score,
        sc.credibility_score, sc.virality_score, sc.status, sc.corroboration_count
      FROM items i
      JOIN scores sc ON sc.item_id = i.id
