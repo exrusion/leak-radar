@@ -7,8 +7,10 @@
   "scripts": {
     "start": "node src/index.js",
     "ingest": "node src/ingest/reddit.js",
+    "ingest:rss": "node src/ingest/rss.js",
     "score": "node src/score/run.js",
     "migrate": "node src/db/migrate.js",
+    "seed": "node src/db/seed.js",
     "serve": "node src/api/server.js"
   },
   "dependencies": {
@@ -16,6 +18,7 @@
     "snoowrap": "^1.23.0",
     "express": "^4.21.2",
     "dotenv": "^16.4.7",
-    "node-cron": "^3.0.3"
+    "node-cron": "^3.0.3",
+    "rss-parser": "^3.13.0"
   }
 }

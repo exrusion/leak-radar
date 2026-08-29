@@ -5,13 +5,25 @@ credibility and virality, serves a ranked feed via API.
 
 ## MVP scope (this version)
 
-- **Ingestion:** Reddit only (r/GTA6, r/GTA, r/leaks, etc. — configurable)
+- **Ingestion:** Reddit (requires manual API approval — see note below) and
+  RSS/YouTube feeds (no approval needed, works immediately)
 - **Scoring:** credibility (source trust + account age + corroboration placeholder)
   and virality (engagement velocity)
 - **API:** single `/feed` endpoint, sortable and filterable
+- **Seed data:** `npm run seed` populates sample items so you can see the full
+  pipeline (items → scores → API → frontend) working without any live source
 
 Twitter and Discord ingestion, and real claim-clustering for corroboration, are
 next steps — see "Not yet implemented" below.
+
+### Note on Reddit access
+
+As of 2026, Reddit requires manual approval for new API access (their
+"Responsible Builder Policy") — creating an app is no longer enough by itself,
+and approval can take days or go unanswered, especially for small personal
+projects. The Reddit ingestion code (`src/ingest/reddit.js`) is ready to go the
+moment access comes through. Until then, use `npm run ingest:rss` and
+`npm run seed` to keep the rest of the pipeline running.
 
 ## Setup
 
@@ -20,8 +32,10 @@ next steps — see "Not yet implemented" below.
    - Reddit API creds — create a "script" app at https://www.reddit.com/prefs/apps
 2. `npm install`
 3. `npm run migrate` — creates all tables
-4. `npm run ingest` — pulls latest posts from configured subreddits, tags anything
-   matching leak keywords, stores it
+4. Get data in, using whichever of these you have access to right now:
+   - `npm run seed` — sample data, works immediately, no setup
+   - `npm run ingest:rss` — pulls from RSS/YouTube feeds, no API key needed
+   - `npm run ingest` — pulls from Reddit (needs approved API access — see above)
 5. `npm run score` — computes credibility/virality for all stored items
 6. `npm run serve` — starts the API on `PORT` (default 3000)
 
