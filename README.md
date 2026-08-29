@@ -5,16 +5,17 @@ credibility and virality, serves a ranked feed via API.
 
 ## MVP scope (this version)
 
-- **Ingestion:** Reddit (requires manual API approval — see note below) and
-  RSS/YouTube feeds (no approval needed, works immediately)
+- **Ingestion:** Reddit (requires manual API approval — see note below), RSS/YouTube
+  feeds (no approval needed), and Twitter/X via twitterapi.io (no OAuth, just an
+  API key — see below)
 - **Scoring:** credibility (source trust + account age + corroboration placeholder)
   and virality (engagement velocity)
-- **API:** single `/feed` endpoint, sortable and filterable
+- **API:** `/feed` (ranked items) and `/sources` (top sources by trust score, for
+  a real leaderboard) — both sortable and filterable
 - **Seed data:** `npm run seed` populates sample items so you can see the full
   pipeline (items → scores → API → frontend) working without any live source
 
-Twitter and Discord ingestion, and real claim-clustering for corroboration, are
-next steps — see "Not yet implemented" below.
+Real claim-clustering for corroboration is a next step — see "Not yet implemented" below.
 
 ### Note on Reddit access
 
@@ -22,8 +23,18 @@ As of 2026, Reddit requires manual approval for new API access (their
 "Responsible Builder Policy") — creating an app is no longer enough by itself,
 and approval can take days or go unanswered, especially for small personal
 projects. The Reddit ingestion code (`src/ingest/reddit.js`) is ready to go the
-moment access comes through. Until then, use `npm run ingest:rss` and
-`npm run seed` to keep the rest of the pipeline running.
+moment access comes through. Until then, use `npm run ingest:rss`,
+`npm run ingest:twitter`, and `npm run seed` to keep the rest of the pipeline running.
+
+### Note on Twitter/X access
+
+Twitter ingestion uses [twitterapi.io](https://twitterapi.io), a third-party
+paid API — sign up, get a key (no OAuth, no approval wait), and set
+`TWITTERAPI_IO_KEY` in your environment. Pricing is pay-per-call
+(roughly $0.00015/tweet read at time of writing — check twitterapi.io/pricing
+for current rates). The default search query looks for GTA6-related leak
+chatter; override it with `TWITTER_SEARCH_QUERY` in your env if you want to
+tune it.
 
 ## Setup
 

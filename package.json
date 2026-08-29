@@ -8,6 +8,7 @@
     "start": "node src/index.js",
     "ingest": "node src/ingest/reddit.js",
     "ingest:rss": "node src/ingest/rss.js",
+    "ingest:twitter": "node src/ingest/twitter.js",
     "score": "node src/score/run.js",
     "migrate": "node src/db/migrate.js",
     "seed": "node src/db/seed.js",

@@ -48,5 +48,19 @@ app.get("/feed", async (req, res) => {
 
 app.get("/health", (_req, res) => res.json({ ok: true }));
 
+// GET /sources — top sources ranked by trust score, for a real leaderboard.
+app.get("/sources", async (req, res) => {
+  const limit = Math.min(parseInt(req.query.limit) || 10, 50);
+  const { rows } = await pool.query(
+    `SELECT platform, handle, trust_score, claims_confirmed, claims_debunked
+     FROM sources
+     WHERE trust_score IS NOT NULL
+     ORDER BY trust_score DESC
+     LIMIT $1`,
+    [limit]
+  );
+  res.json({ count: rows.length, sources: rows });
+});
+
 const port = process.env.PORT || 3000;
 app.listen(port, () => console.log(`leak-radar API listening on :${port}`));
